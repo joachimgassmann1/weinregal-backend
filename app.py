@@ -45,7 +45,7 @@ Regeln:
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "version": "2.0"})
+    return jsonify({"status": "ok", "version": "3.0"})
 
 @app.route("/analyze", methods=["POST"])
 def analyze_wine():
@@ -54,9 +54,15 @@ def analyze_wine():
         if not api_key:
             return jsonify({"error": "OPENAI_API_KEY nicht gesetzt"}), 500
 
-        # OpenAI-Client lazy initialisieren
+        # Base URL aus Umgebungsvariable lesen (Manus-Proxy oder direkter OpenAI)
+        base_url = os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE")
+
+        # OpenAI-Client initialisieren
         from openai import OpenAI
-        client = OpenAI(api_key=api_key)
+        if base_url:
+            client = OpenAI(api_key=api_key, base_url=base_url)
+        else:
+            client = OpenAI(api_key=api_key)
 
         data = request.get_json()
         if not data or "image" not in data:
@@ -66,8 +72,11 @@ def analyze_wine():
         if "," in image_data:
             image_data = image_data.split(",", 1)[1]
 
+        # Modell wählen: gpt-4.1-mini für Proxy, gpt-4o für direkten OpenAI
+        model = "gpt-4.1-mini" if base_url else "gpt-4o"
+
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
