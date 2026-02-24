@@ -3,17 +3,12 @@
 Weinregal Backend – GPT-4 Vision Weinetikett-Analyse
 Für Render.com Deployment
 """
-import os, json, base64
+import os, json
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from openai import OpenAI
 
 app = Flask(__name__)
 CORS(app, origins="*")
-
-# API-Key aus Umgebungsvariable (Render Secret)
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-client = OpenAI(api_key=OPENAI_API_KEY, base_url="https://api.openai.com/v1")
 
 SYSTEM_PROMPT = """Du bist ein Weinexperte und analysierst Fotos von Weinetiketten.
 Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt – kein Markdown, kein Text davor oder danach.
@@ -50,13 +45,18 @@ Regeln:
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "version": "1.0"})
+    return jsonify({"status": "ok", "version": "2.0"})
 
 @app.route("/analyze", methods=["POST"])
 def analyze_wine():
     try:
-        if not OPENAI_API_KEY:
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
             return jsonify({"error": "OPENAI_API_KEY nicht gesetzt"}), 500
+
+        # OpenAI-Client lazy initialisieren
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
 
         data = request.get_json()
         if not data or "image" not in data:
