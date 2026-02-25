@@ -54,7 +54,7 @@ Regeln:
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "version": "2.0"})
+    return jsonify({"status": "ok", "version": "4.0"})
 
 @app.route("/analyze", methods=["POST"])
 def analyze_wine():
