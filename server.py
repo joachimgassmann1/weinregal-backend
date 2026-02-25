@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Weinregal Backend – GPT-4 Vision Weinetikett-Analyse
+Weinregal Backend – GPT-4 Vision Weinetikett-Analyse + DALL-E Bildgenerierung
 Für Render.com Deployment
 """
 import os, json, base64
@@ -34,6 +34,10 @@ Extrahiere folgende Informationen aus dem Weinetikett:
   "food_pairing": "Passende Speisen",
   "serving_temp": "Empfohlene Trinktemperatur (z.B. 16-18°C)",
   "aging_potential": "Lagerpotenzial (z.B. 5-10 Jahre)",
+  "winery_story": "2-3 Sätze Geschichte und Philosophie des Weinguts",
+  "vintage_notes": "Informationen zum Jahrgang und Klima dieses Jahres",
+  "awards": "Auszeichnungen, Bewertungen, Parker-Punkte falls bekannt",
+  "price_range": "Marktpreisbereich (z.B. 15-30 EUR)",
   "estimated_price": 0,
   "confidence": 0.95
 }
@@ -50,7 +54,7 @@ Regeln:
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok", "version": "1.0"})
+    return jsonify({"status": "ok", "version": "2.0"})
 
 @app.route("/analyze", methods=["POST"])
 def analyze_wine():
@@ -66,28 +70,45 @@ def analyze_wine():
         if "," in image_data:
             image_data = image_data.split(",", 1)[1]
 
+        # Zweites Bild (Rückseite) optional
+        messages_content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}",
+                    "detail": "high"
+                }
+            }
+        ]
+
+        if data.get("image_back"):
+            back_data = data["image_back"]
+            if "," in back_data:
+                back_data = back_data.split(",", 1)[1]
+            messages_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{back_data}",
+                    "detail": "high"
+                }
+            })
+            messages_content.append({
+                "type": "text",
+                "text": "Das erste Bild zeigt die Vorderseite, das zweite die Rückseite des Weinetiketts. Analysiere beide und gib alle Informationen als JSON zurück."
+            })
+        else:
+            messages_content.append({
+                "type": "text",
+                "text": "Analysiere dieses Weinetikett und gib alle Informationen als JSON zurück."
+            })
+
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_data}",
-                                "detail": "high"
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": "Analysiere dieses Weinetikett und gib alle Informationen als JSON zurück."
-                        }
-                    ]
-                }
+                {"role": "user", "content": messages_content}
             ],
-            max_tokens=1000,
+            max_tokens=2000,
             temperature=0.2
         )
 
@@ -111,7 +132,9 @@ def analyze_wine():
             "name": "Unbekannter Wein", "producer": "", "vintage": None,
             "region": "", "country": "", "type": "red", "ripeness": "peak",
             "grape": "", "alcohol": "", "description": "", "food_pairing": "",
-            "serving_temp": "", "aging_potential": "", "estimated_price": 0, "confidence": 0.5
+            "serving_temp": "", "aging_potential": "", "winery_story": "",
+            "vintage_notes": "", "awards": "", "price_range": "",
+            "estimated_price": 0, "confidence": 0.5
         }
         for k, v in defaults.items():
             wine_data.setdefault(k, v)
@@ -127,6 +150,54 @@ def analyze_wine():
         return jsonify({"error": f"JSON-Parse-Fehler: {str(e)}"}), 500
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/generate-label-image", methods=["POST"])
+def generate_label_image():
+    """DALL-E 3: Hochwertiges Etikettenbild für einen Wein generieren"""
+    try:
+        if not OPENAI_API_KEY:
+            return jsonify({"error": "OPENAI_API_KEY nicht gesetzt"}), 500
+
+        data = request.get_json()
+        wine_name = data.get("name", "")
+        producer = data.get("producer", "")
+        vintage = data.get("vintage", "")
+        region = data.get("region", "")
+        country = data.get("country", "")
+        wine_type = data.get("type", "red")
+
+        type_desc = {
+            "red": "red wine",
+            "white": "white wine",
+            "rose": "rosé wine",
+            "sparkling": "sparkling wine / champagne"
+        }.get(wine_type, "wine")
+
+        prompt = (
+            f"A professional, high-quality wine bottle label photograph for '{wine_name}' "
+            f"by {producer}, {vintage}, from {region}, {country}. "
+            f"This is a {type_desc}. "
+            f"The label should look elegant, authentic and realistic, "
+            f"like a real wine label scan or professional product photo. "
+            f"Clean white background, sharp focus, high resolution. "
+            f"No text overlays or watermarks."
+        )
+
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            n=1,
+            size="1024x1024",
+            quality="standard"
+        )
+
+        image_url = response.data[0].url
+        return jsonify({"success": True, "url": image_url})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5050))
